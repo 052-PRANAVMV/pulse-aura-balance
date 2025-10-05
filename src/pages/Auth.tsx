@@ -4,268 +4,271 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Heart, Sparkles } from "lucide-react";
 import { z } from "zod";
+import { Heart, Sparkles } from "lucide-react";
 
-const signUpSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(100),
-  email: z.string().trim().email("Invalid email address").max(255),
+const signupSchema = z.object({
+  name: z.string().trim().min(2, "Name must be at least 2 characters"),
+  email: z.string().trim().email("Invalid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
-  age: z.string().optional(),
-  healthHistory: z.string().trim().max(1000).optional(),
-  device: z.string().trim().max(200).optional(),
+  age: z.number().min(1).max(150).optional(),
+  healthHistory: z.string().trim().max(500).optional(),
+  device: z.string().trim().max(100).optional(),
 });
 
 const loginSchema = z.object({
   email: z.string().trim().email("Invalid email address"),
-  password: z.string().min(1, "Password is required"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
-export default function Auth() {
-  const [isLogin, setIsLogin] = useState(true);
-  const [loading, setLoading] = useState(false);
+const Auth = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
 
-  const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    password: "",
-    age: "",
-    healthHistory: "",
-    device: "",
-  });
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+
+  const [signupName, setSignupName] = useState("");
+  const [signupEmail, setSignupEmail] = useState("");
+  const [signupPassword, setSignupPassword] = useState("");
+  const [age, setAge] = useState("");
+  const [healthHistory, setHealthHistory] = useState("");
+  const [device, setDevice] = useState("");
 
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         navigate("/");
       }
-    };
-    checkUser();
+    });
   }, [navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    const validation = loginSchema.safeParse({
-      email: formData.email,
-      password: formData.password,
-    });
-
-    if (!validation.success) {
-      toast({
-        variant: "destructive",
-        title: "Validation Error",
-        description: validation.error.errors[0].message,
-      });
-      return;
-    }
-
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: formData.email,
-      password: formData.password,
-    });
-
-    if (error) {
-      toast({
-        variant: "destructive",
-        title: "Login Failed",
-        description: error.message,
+    try {
+      const validated = loginSchema.parse({
+        email: loginEmail,
+        password: loginPassword,
       });
-    } else {
+
+      const { error } = await supabase.auth.signInWithPassword({
+        email: validated.email,
+        password: validated.password,
+      });
+
+      if (error) throw error;
+
       toast({
         title: "Welcome back!",
         description: "Successfully logged in to Pulse & Aura",
       });
       navigate("/");
+    } catch (error: any) {
+      toast({
+        title: "Login failed",
+        description: error.message || "Invalid email or password",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
-  const handleSignUp = async (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    const validation = signUpSchema.safeParse({
-      name: formData.name,
-      email: formData.email,
-      password: formData.password,
-      age: formData.age,
-      healthHistory: formData.healthHistory,
-      device: formData.device,
-    });
-
-    if (!validation.success) {
-      toast({
-        variant: "destructive",
-        title: "Validation Error",
-        description: validation.error.errors[0].message,
-      });
-      return;
-    }
-
     setLoading(true);
 
-    const { error } = await supabase.auth.signUp({
-      email: formData.email,
-      password: formData.password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/`,
-        data: {
-          name: formData.name,
-        },
-      },
-    });
-
-    if (error) {
-      toast({
-        variant: "destructive",
-        title: "Sign Up Failed",
-        description: error.message,
+    try {
+      const validated = signupSchema.parse({
+        name: signupName,
+        email: signupEmail,
+        password: signupPassword,
+        age: age ? parseInt(age) : undefined,
+        healthHistory,
+        device,
       });
-    } else {
-      // Update profile with additional data
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (user) {
-        await supabase.from("profiles").update({
-          age: formData.age ? parseInt(formData.age) : null,
-          health_history: formData.healthHistory || null,
-          connected_device: formData.device || null,
-        }).eq("id", user.id);
+
+      const redirectUrl = `${window.location.origin}/`;
+
+      const { data, error } = await supabase.auth.signUp({
+        email: validated.email,
+        password: validated.password,
+        options: {
+          emailRedirectTo: redirectUrl,
+          data: {
+            name: validated.name,
+          },
+        },
+      });
+
+      if (error) throw error;
+
+      if (data.user) {
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({
+            age: validated.age,
+            health_history: validated.healthHistory,
+            connected_device: validated.device,
+          })
+          .eq("id", data.user.id);
+
+        if (profileError) {
+          console.error("Profile update error:", profileError);
+        }
       }
 
       toast({
-        title: "Welcome to Pulse & Aura!",
-        description: "Your account has been created successfully",
+        title: "Account created!",
+        description: "Welcome to Pulse & Aura. You can now log in.",
       });
-      navigate("/");
+      
+      const loginTab = document.querySelector('[value="login"]') as HTMLElement;
+      loginTab?.click();
+    } catch (error: any) {
+      toast({
+        title: "Signup failed",
+        description: error.message || "Could not create account",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-4">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-accent/5 to-background">
+      <Card className="w-full max-w-md border-primary/20 shadow-lg shadow-primary/5">
+        <CardHeader className="space-y-2 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
             <Heart className="w-8 h-8 text-primary animate-pulse" />
-            <Sparkles className="w-8 h-8 text-accent animate-pulse" />
+            <Sparkles className="w-6 h-6 text-secondary" />
           </div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
+          <CardTitle className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
             Pulse & Aura
-          </h1>
-          <p className="text-muted-foreground mt-2">
-            Your journey to balanced well-being
-          </p>
-        </div>
+          </CardTitle>
+          <CardDescription>
+            Your journey to balanced health starts here
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Tabs defaultValue="login" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="login">Login</TabsTrigger>
+              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+            </TabsList>
 
-        <div className="glass-panel p-8 rounded-2xl">
-          <div className="flex gap-2 mb-6">
-            <Button
-              variant={isLogin ? "default" : "outline"}
-              className="flex-1"
-              onClick={() => setIsLogin(true)}
-            >
-              Login
-            </Button>
-            <Button
-              variant={!isLogin ? "default" : "outline"}
-              className="flex-1"
-              onClick={() => setIsLogin(false)}
-            >
-              Sign Up
-            </Button>
-          </div>
-
-          <form onSubmit={isLogin ? handleLogin : handleSignUp} className="space-y-4">
-            {!isLogin && (
-              <div className="space-y-2">
-                <Label htmlFor="name">Full Name *</Label>
-                <Input
-                  id="name"
-                  type="text"
-                  placeholder="Enter your name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  required
-                />
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="email">Email *</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="your@email.com"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password">Password *</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                required
-              />
-            </div>
-
-            {!isLogin && (
-              <>
+            <TabsContent value="login">
+              <form onSubmit={handleLogin} className="space-y-4 mt-4">
                 <div className="space-y-2">
-                  <Label htmlFor="age">Age (optional)</Label>
+                  <Label htmlFor="login-email">Email</Label>
+                  <Input
+                    id="login-email"
+                    type="email"
+                    placeholder="your@email.com"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="login-password">Password</Label>
+                  <Input
+                    id="login-password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? "Logging in..." : "Log In"}
+                </Button>
+              </form>
+            </TabsContent>
+
+            <TabsContent value="signup">
+              <form onSubmit={handleSignup} className="space-y-4 mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="signup-name">Full Name</Label>
+                  <Input
+                    id="signup-name"
+                    type="text"
+                    placeholder="John Doe"
+                    value={signupName}
+                    onChange={(e) => setSignupName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-email">Email</Label>
+                  <Input
+                    id="signup-email"
+                    type="email"
+                    placeholder="your@email.com"
+                    value={signupEmail}
+                    onChange={(e) => setSignupEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-password">Password</Label>
+                  <Input
+                    id="signup-password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={signupPassword}
+                    onChange={(e) => setSignupPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="age">Age (Optional)</Label>
                   <Input
                     id="age"
                     type="number"
                     placeholder="25"
-                    value={formData.age}
-                    onChange={(e) => setFormData({ ...formData, age: e.target.value })}
+                    value={age}
+                    onChange={(e) => setAge(e.target.value)}
                   />
                 </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="healthHistory">Health History (optional)</Label>
+                  <Label htmlFor="health-history">Previous Health Issues (Optional)</Label>
                   <Input
-                    id="healthHistory"
+                    id="health-history"
                     type="text"
-                    placeholder="Any previous health conditions..."
-                    value={formData.healthHistory}
-                    onChange={(e) => setFormData({ ...formData, healthHistory: e.target.value })}
+                    placeholder="e.g., diabetes, hypertension"
+                    value={healthHistory}
+                    onChange={(e) => setHealthHistory(e.target.value)}
                   />
                 </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="device">Health Monitoring Device (optional)</Label>
+                  <Label htmlFor="device">Connected Device (Optional)</Label>
                   <Input
                     id="device"
                     type="text"
-                    placeholder="Apple Watch, Fitbit, etc."
-                    value={formData.device}
-                    onChange={(e) => setFormData({ ...formData, device: e.target.value })}
+                    placeholder="e.g., Apple Watch, Fitbit"
+                    value={device}
+                    onChange={(e) => setDevice(e.target.value)}
                   />
                 </div>
-              </>
-            )}
-
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Processing..." : isLogin ? "Login" : "Create Account"}
-            </Button>
-          </form>
-        </div>
-      </div>
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? "Creating account..." : "Create Account"}
+                </Button>
+              </form>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
     </div>
   );
-}
+};
+
+export default Auth;
